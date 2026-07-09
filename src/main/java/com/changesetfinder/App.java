@@ -13,7 +13,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import java.nio.file.Files;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,7 +33,7 @@ public class App extends Application {
     private ListView<Changeset> lvChangesets;
     private TextArea taChangesetSql;
 
-    private ListView<String> lvFiles;
+    private TreeView<String> tvFiles;
     private TextArea taFullFileSql;
 
     // Duplicates tab components
@@ -147,7 +149,11 @@ public class App extends Application {
         cbContextFilter.setPrefWidth(200);
         cbContextFilter.setOnAction(e -> applyFilter());
 
-        filterBar.getChildren().addAll(lblFilter, cbContextFilter);
+        Button btnExport = new Button("Export");
+        btnExport.getStyleClass().add("button-secondary");
+        btnExport.setOnAction(e -> handleExport());
+
+        filterBar.getChildren().addAll(lblFilter, cbContextFilter, btnExport);
         explorer.setTop(filterBar);
 
         // Split pane for changesets list and SQL viewer
@@ -191,18 +197,22 @@ public class App extends Application {
 
         SplitPane splitPane = new SplitPane();
 
-        // Left side: File ListView
-        lvFiles = new ListView<>();
-        lvFiles.setPlaceholder(new Label("No files loaded"));
-        lvFiles.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            displayFileSql(newVal);
+        // Left side: File TreeView
+        tvFiles = new TreeView<>();
+        tvFiles.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            String path = getFullPath(newVal);
+            if (path != null) {
+                displayFileSql(path);
+            } else {
+                taFullFileSql.clear();
+            }
         });
 
         VBox listContainer = new VBox(8);
         Label lblListTitle = new Label("SQL Files");
         lblListTitle.setStyle("-fx-text-fill: #a0aec0; -fx-font-weight: bold;");
-        listContainer.getChildren().addAll(lblListTitle, lvFiles);
-        VBox.setVgrow(lvFiles, Priority.ALWAYS);
+        listContainer.getChildren().addAll(lblListTitle, tvFiles);
+        VBox.setVgrow(tvFiles, Priority.ALWAYS);
 
         // Right side: SQL Content Area
         taFullFileSql = new TextArea();
@@ -276,21 +286,16 @@ public class App extends Application {
                 cbContextFilter.setItems(contextsList);
                 cbContextFilter.setValue("All");
 
-                // Populate Tab 2 File List
-                ObservableList<String> filesList = FXCollections.observableArrayList();
-                if (!fileContents.isEmpty()) {
-                    filesList.add("[All Combined Statements]");
-                    filesList.addAll(fileContents.keySet());
-                }
-                lvFiles.setItems(filesList);
+                // Populate Tab 2 File Tree
+                populateFileTree(fileContents);
 
                 applyFilter();
                 lblStatus.setText(String.format("Loaded %d changesets from %d files.", 
                         allChangesets.size(), fileContents.size()));
 
-                // Auto select first file in Tab 2
-                if (!filesList.isEmpty()) {
-                    lvFiles.getSelectionModel().selectFirst();
+                // Auto select first file in Tab 2 (which is [All Combined Statements])
+                if (tvFiles.getRoot() != null && !tvFiles.getRoot().getChildren().isEmpty()) {
+                    tvFiles.getSelectionModel().select(tvFiles.getRoot().getChildren().get(0));
                 }
 
             } catch (IOException ex) {
@@ -583,6 +588,121 @@ public class App extends Application {
         sb.append(changeset.getSqlContent().trim());
 
         taDuplicateSql.setText(sb.toString());
+    }
+
+    private void populateFileTree(Map<String, String> fileContents) {
+        TreeItem<String> rootItem = new TreeItem<>("Root");
+        
+        // Add Combined statements item
+        TreeItem<String> combinedItem = new TreeItem<>("[All Combined Statements]");
+        rootItem.getChildren().add(combinedItem);
+        
+        // Build the tree for other files
+        for (String relativePath : fileContents.keySet()) {
+            String[] parts = relativePath.split("/");
+            TreeItem<String> current = rootItem;
+            
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                TreeItem<String> foundChild = null;
+                for (TreeItem<String> child : current.getChildren()) {
+                    if (child.getValue().equals(part)) {
+                        foundChild = child;
+                        break;
+                    }
+                }
+                
+                if (foundChild == null) {
+                    foundChild = new TreeItem<>(part);
+                    current.getChildren().add(foundChild);
+                }
+                current = foundChild;
+            }
+        }
+        
+        tvFiles.setRoot(rootItem);
+        tvFiles.setShowRoot(false);
+    }
+
+    private String getFullPath(TreeItem<String> item) {
+        if (item == null) return null;
+        if (item.getValue().equals("[All Combined Statements]")) {
+            return "[All Combined Statements]";
+        }
+        if (!item.isLeaf()) {
+            return null; // A directory is selected
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        TreeItem<String> curr = item;
+        while (curr != null && curr.getParent() != null) {
+            if (curr.getParent().getParent() == null) {
+                sb.insert(0, curr.getValue());
+                break;
+            } else {
+                sb.insert(0, "/" + curr.getValue());
+            }
+            curr = curr.getParent();
+        }
+        return sb.toString();
+    }
+
+    private void handleExport() {
+        if (lvChangesets.getItems().isEmpty()) {
+            Alert alert = new Alert(Alert.AlertType.WARNING);
+            alert.setTitle("Export Warning");
+            alert.setHeaderText("No changesets to export");
+            alert.setContentText("The current filtered changeset list is empty.");
+            alert.showAndWait();
+            return;
+        }
+
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Save Exported Changesets");
+        fileChooser.setInitialFileName("exported_changesets.txt");
+        fileChooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Text Files (*.txt)", "*.txt"),
+                new FileChooser.ExtensionFilter("SQL Files (*.sql)", "*.sql")
+        );
+
+        File file = fileChooser.showSaveDialog(primaryStage);
+        if (file != null) {
+            try {
+                StringBuilder sb = new StringBuilder();
+                sb.append("================================================================================\n");
+                sb.append("EXPORTED LIQUIBASE CHANGESETS\n");
+                sb.append(String.format("Filter:            Context = %s\n", cbContextFilter.getValue()));
+                sb.append(String.format("Total Changesets:  %d\n", lvChangesets.getItems().size()));
+                sb.append(String.format("Exported On:       %s\n", java.time.LocalDateTime.now().toString()));
+                sb.append("================================================================================\n\n");
+
+                for (Changeset cs : lvChangesets.getItems()) {
+                    sb.append("--------------------------------------------------------------------------------\n");
+                    sb.append(String.format("Changeset ID: %s\n", cs.getId()));
+                    sb.append(String.format("Author:       %s\n", cs.getAuthor()));
+                    sb.append(String.format("File Path:    %s\n", cs.getFilePath()));
+                    sb.append(String.format("Contexts:     %s\n", cs.getContexts().isEmpty() ? "None" : String.join(", ", cs.getContexts())));
+                    sb.append("--------------------------------------------------------------------------------\n");
+                    sb.append(cs.getSqlContent().trim()).append("\n\n");
+                }
+
+                Files.writeString(file.toPath(), sb.toString());
+                
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Export Success");
+                alert.setHeaderText("Export Completed");
+                alert.setContentText("Successfully exported " + lvChangesets.getItems().size() + " changesets to:\n" + file.getAbsolutePath());
+                alert.showAndWait();
+                
+                lblStatus.setText("Exported " + lvChangesets.getItems().size() + " changesets.");
+            } catch (IOException ex) {
+                Alert alert = new Alert(Alert.AlertType.ERROR);
+                alert.setTitle("Export Error");
+                alert.setHeaderText("Failed to Save File");
+                alert.setContentText(ex.getMessage());
+                alert.showAndWait();
+            }
+        }
     }
 
     public static void main(String[] args) {
