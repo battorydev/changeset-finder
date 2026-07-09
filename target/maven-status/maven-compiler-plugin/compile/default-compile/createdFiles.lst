@@ -1,7 +1,9 @@
 com\changesetfinder\parser\LiquibaseParser$ParseResult.class
 com\changesetfinder\App.class
 module-info.class
+com\changesetfinder\App$1.class
 com\changesetfinder\App$ChangesetListCell.class
 com\changesetfinder\model\Changeset.class
 com\changesetfinder\parser\LiquibaseParser.class
 com\changesetfinder\TestParser.class
+com\changesetfinder\App$2.class

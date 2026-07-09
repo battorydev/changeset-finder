@@ -34,6 +34,14 @@ public class App extends Application {
     private ListView<String> lvFiles;
     private TextArea taFullFileSql;
 
+    // Duplicates tab components
+    private ListView<String> lvDuplicateIds;
+    private ListView<Changeset> lvDuplicateOccurrences;
+    private TextArea taDuplicateSql;
+    private Pane paneNoDuplicates;
+    private SplitPane splitPaneDuplicates;
+    private Map<String, List<Changeset>> duplicateChangesets = new java.util.HashMap<>();
+
     // Parsed data
     private List<Changeset> allChangesets = new ArrayList<>();
     private Map<String, String> fileContents = java.util.Collections.emptyMap();
@@ -63,7 +71,11 @@ public class App extends Application {
         tabSqlStatements.setClosable(false);
         tabSqlStatements.setContent(createAllSqlView());
 
-        tabPane.getTabs().addAll(tabChangesets, tabSqlStatements);
+        Tab tabDuplicates = new Tab("Duplicate Changesets");
+        tabDuplicates.setClosable(false);
+        tabDuplicates.setContent(createDuplicatesView());
+
+        tabPane.getTabs().addAll(tabChangesets, tabSqlStatements, tabDuplicates);
         root.setCenter(tabPane);
 
         // Scene setup
@@ -230,6 +242,32 @@ public class App extends Application {
                 this.fileContents = result.getFileContents();
                 this.uniqueContexts = result.getSortedContexts();
 
+                // Find duplicate changesets
+                this.duplicateChangesets = new java.util.HashMap<>();
+                Map<String, List<Changeset>> groupedById = allChangesets.stream()
+                        .collect(java.util.stream.Collectors.groupingBy(Changeset::getId));
+                for (Map.Entry<String, List<Changeset>> entry : groupedById.entrySet()) {
+                    if (entry.getValue().size() > 1) {
+                        this.duplicateChangesets.put(entry.getKey(), entry.getValue());
+                    }
+                }
+
+                // Update Duplicates tab view
+                if (duplicateChangesets.isEmpty()) {
+                    paneNoDuplicates.setVisible(true);
+                    splitPaneDuplicates.setVisible(false);
+                    lvDuplicateIds.getItems().clear();
+                    lvDuplicateOccurrences.getItems().clear();
+                    taDuplicateSql.clear();
+                } else {
+                    paneNoDuplicates.setVisible(false);
+                    splitPaneDuplicates.setVisible(true);
+                    ObservableList<String> dupesList = FXCollections.observableArrayList(duplicateChangesets.keySet());
+                    java.util.Collections.sort(dupesList);
+                    lvDuplicateIds.setItems(dupesList);
+                    lvDuplicateIds.getSelectionModel().selectFirst();
+                }
+
                 // Populate Context ComboBox
                 ObservableList<String> contextsList = FXCollections.observableArrayList();
                 contextsList.add("All");
@@ -268,6 +306,11 @@ public class App extends Application {
 
         ObservableList<Changeset> filtered = FXCollections.observableArrayList();
         for (Changeset cs : allChangesets) {
+            // Exclude duplicate changesets from Changeset Explorer
+            if (duplicateChangesets.containsKey(cs.getId())) {
+                continue;
+            }
+
             if (selectedContext.equals("All")) {
                 filtered.add(cs);
             } else if (selectedContext.equals("<No Context>")) {
@@ -397,6 +440,149 @@ public class App extends Application {
                 setText(null);
             }
         }
+    }
+
+    private Pane createDuplicatesView() {
+        StackPane container = new StackPane();
+        container.setPadding(new Insets(16));
+
+        // View 1: Placeholder when there are no duplicates
+        VBox placeholder = new VBox(12);
+        placeholder.setAlignment(Pos.CENTER);
+        Label lblNoDupesTitle = new Label("No Duplicate Changesets Found");
+        lblNoDupesTitle.getStyleClass().add("title-label");
+        lblNoDupesTitle.setStyle("-fx-text-fill: #10b981;"); // Green
+        Label lblNoDupesSub = new Label("All changesets have unique IDs across all files.");
+        lblNoDupesSub.getStyleClass().add("subtitle-label");
+        placeholder.getChildren().addAll(lblNoDupesTitle, lblNoDupesSub);
+        this.paneNoDuplicates = placeholder;
+
+        // View 2: Split pane when duplicates exist
+        SplitPane splitPane = new SplitPane();
+        this.splitPaneDuplicates = splitPane;
+
+        // Left side: List of duplicate IDs
+        lvDuplicateIds = new ListView<>();
+        lvDuplicateIds.setCellFactory(param -> new ListCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    int size = duplicateChangesets.containsKey(item) ? duplicateChangesets.get(item).size() : 0;
+                    setText(String.format("%s (%d occurrences)", item, size));
+                    setStyle("-fx-font-weight: bold;");
+                }
+            }
+        });
+        lvDuplicateIds.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            displayDuplicateOccurrences(newVal);
+        });
+
+        VBox leftContainer = new VBox(8);
+        Label lblLeftTitle = new Label("Duplicate IDs");
+        lblLeftTitle.setStyle("-fx-text-fill: #a0aec0; -fx-font-weight: bold;");
+        leftContainer.getChildren().addAll(lblLeftTitle, lvDuplicateIds);
+        VBox.setVgrow(lvDuplicateIds, Priority.ALWAYS);
+
+        // Right side: Vertical split for occurrences and SQL content
+        SplitPane rightSplit = new SplitPane();
+        rightSplit.setOrientation(javafx.geometry.Orientation.VERTICAL);
+
+        // Right-Top: Occurrences list
+        lvDuplicateOccurrences = new ListView<>();
+        lvDuplicateOccurrences.setCellFactory(param -> new ListCell<>() {
+            @Override
+            protected void updateItem(Changeset item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    VBox occurrenceLayout = new VBox(4);
+                    Label fileLabel = new Label("File: " + item.getFilePath());
+                    fileLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #ffffff;");
+                    Label detailsLabel = new Label(String.format("Author: %s | Contexts: %s",
+                            item.getAuthor(),
+                            item.getContexts().isEmpty() ? "None" : String.join(", ", item.getContexts())));
+                    detailsLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #94a3b8;");
+                    occurrenceLayout.getChildren().addAll(fileLabel, detailsLabel);
+                    setGraphic(occurrenceLayout);
+                }
+            }
+        });
+        lvDuplicateOccurrences.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            displayDuplicateSql(newVal);
+        });
+
+        VBox occurrencesContainer = new VBox(8);
+        Label lblOccurTitle = new Label("Occurrences");
+        lblOccurTitle.setStyle("-fx-text-fill: #a0aec0; -fx-font-weight: bold;");
+        occurrencesContainer.getChildren().addAll(lblOccurTitle, lvDuplicateOccurrences);
+        VBox.setVgrow(lvDuplicateOccurrences, Priority.ALWAYS);
+
+        // Right-Bottom: SQL TextArea
+        taDuplicateSql = new TextArea();
+        taDuplicateSql.setEditable(false);
+        taDuplicateSql.setPromptText("Select an occurrence to display its SQL statements");
+
+        VBox sqlContainer = new VBox(8);
+        Label lblSqlTitle = new Label("SQL Statement of Selected Occurrence");
+        lblSqlTitle.setStyle("-fx-text-fill: #a0aec0; -fx-font-weight: bold;");
+        sqlContainer.getChildren().addAll(lblSqlTitle, taDuplicateSql);
+        VBox.setVgrow(taDuplicateSql, Priority.ALWAYS);
+
+        rightSplit.getItems().addAll(occurrencesContainer, sqlContainer);
+        rightSplit.setDividerPositions(0.4);
+
+        splitPane.getItems().addAll(leftContainer, rightSplit);
+        splitPane.setDividerPositions(0.3);
+
+        container.getChildren().addAll(placeholder, splitPane);
+
+        // Default state: show placeholder
+        placeholder.setVisible(true);
+        splitPane.setVisible(false);
+
+        return container;
+    }
+
+    private void displayDuplicateOccurrences(String duplicateId) {
+        if (duplicateId == null) {
+            lvDuplicateOccurrences.getItems().clear();
+            taDuplicateSql.clear();
+            return;
+        }
+
+        List<Changeset> occurrences = duplicateChangesets.get(duplicateId);
+        if (occurrences != null) {
+            lvDuplicateOccurrences.setItems(FXCollections.observableArrayList(occurrences));
+            lvDuplicateOccurrences.getSelectionModel().selectFirst();
+        } else {
+            lvDuplicateOccurrences.getItems().clear();
+            taDuplicateSql.clear();
+        }
+    }
+
+    private void displayDuplicateSql(Changeset changeset) {
+        if (changeset == null) {
+            taDuplicateSql.clear();
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("-- ==================================================\n");
+        sb.append(String.format("-- DUPLICATE OCCURRENCE INFO\n"));
+        sb.append(String.format("-- Changeset ID: %s\n", changeset.getId()));
+        sb.append(String.format("-- Author:       %s\n", changeset.getAuthor()));
+        sb.append(String.format("-- Contexts:     %s\n", 
+                changeset.getContexts().isEmpty() ? "None" : String.join(", ", changeset.getContexts())));
+        sb.append(String.format("-- File Path:    %s\n", changeset.getFilePath()));
+        sb.append("-- ==================================================\n\n");
+        sb.append(changeset.getSqlContent().trim());
+
+        taDuplicateSql.setText(sb.toString());
     }
 
     public static void main(String[] args) {
