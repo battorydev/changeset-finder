@@ -55,6 +55,7 @@ public class App extends Application {
     // Database objects tab components
     private TreeView<String> tvObjects;
     private TextArea taObjectSql;
+    private ComboBox<String> cbObjectsContextFilter;
 
     // Parsed data
     private List<Changeset> allChangesets = new ArrayList<>();
@@ -319,7 +320,7 @@ public class App extends Application {
                     lvDuplicateIds.getSelectionModel().selectFirst();
                 }
 
-                // Populate Context ComboBox
+                // Populate Context ComboBoxes
                 ObservableList<String> contextsList = FXCollections.observableArrayList();
                 contextsList.add("All");
                 contextsList.add("<No Context>");
@@ -327,13 +328,14 @@ public class App extends Application {
                 cbContextFilter.setItems(contextsList);
                 cbContextFilter.setValue("All");
 
+                cbObjectsContextFilter.setItems(contextsList);
+                cbObjectsContextFilter.setValue("All");
+
                 // Populate Tab 2 File Tree
                 populateFileTree(fileContents);
 
-                // Populate Tab 4 Database Objects Tree
-                populateObjectsTree(allChangesets);
-
                 applyFilter();
+                applyObjectsFilter();
                 lblStatus.setText(String.format("Loaded %d changesets from %d files.", 
                         allChangesets.size(), fileContents.size()));
                 lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #15803d;");
@@ -407,10 +409,6 @@ public class App extends Application {
             lvChangesets.getSelectionModel().selectFirst();
         } else {
             taChangesetSql.clear();
-        }
-
-        if (tvObjects != null) {
-            populateObjectsTree(filtered);
         }
     }
 
@@ -837,6 +835,23 @@ public class App extends Application {
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(16));
 
+        // Filter bar at the top
+        HBox filterBar = new HBox(12);
+        filterBar.setAlignment(Pos.CENTER_LEFT);
+        filterBar.setPadding(new Insets(0, 0, 12, 0));
+
+        Label lblFilter = new Label("Context Filter:");
+        lblFilter.getStyleClass().add("section-label");
+
+        cbObjectsContextFilter = new ComboBox<>();
+        cbObjectsContextFilter.getItems().add("All");
+        cbObjectsContextFilter.setValue("All");
+        cbObjectsContextFilter.setPrefWidth(200);
+        cbObjectsContextFilter.setOnAction(e -> applyObjectsFilter());
+
+        filterBar.getChildren().addAll(lblFilter, cbObjectsContextFilter);
+        pane.setTop(filterBar);
+
         SplitPane splitPane = new SplitPane();
 
         // Left side: Objects TreeView
@@ -872,6 +887,33 @@ public class App extends Application {
 
         pane.setCenter(splitPane);
         return pane;
+    }
+
+    private void applyObjectsFilter() {
+        String selectedContext = cbObjectsContextFilter.getValue();
+        if (selectedContext == null) return;
+
+        List<Changeset> filtered = new ArrayList<>();
+        for (Changeset cs : allChangesets) {
+            // Exclude duplicate changesets from Database Objects Tree
+            if (duplicateChangesets.containsKey(cs.getId())) {
+                continue;
+            }
+
+            if (selectedContext.equals("All")) {
+                filtered.add(cs);
+            } else if (selectedContext.equals("<No Context>")) {
+                if (cs.getContexts().isEmpty()) {
+                    filtered.add(cs);
+                }
+            } else {
+                if (cs.getContexts().contains(selectedContext)) {
+                    filtered.add(cs);
+                }
+            }
+        }
+
+        populateObjectsTree(filtered);
     }
 
     private void displayObjectSql(String type, String name, List<Changeset> changesets) {
