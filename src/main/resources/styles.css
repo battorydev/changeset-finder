@@ -267,3 +267,21 @@
     -fx-background-radius: 10px;
     -fx-font-weight: bold;
 }
+
+/* ProgressBar styling */
+.progress-bar {
+    -fx-indeterminate-bar-length: 60;
+    -fx-indeterminate-bar-escape: true;
+    -fx-indeterminate-bar-flip: true;
+    -fx-indeterminate-bar-animation-time: 2.0;
+}
+
+.progress-bar .track {
+    -fx-background-color: #2d2d44;
+    -fx-background-radius: 4px;
+}
+
+.progress-bar .bar {
+    -fx-background-color: linear-gradient(to right, #6366f1, #a855f7);
+    -fx-background-radius: 4px;
+}

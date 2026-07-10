@@ -16,6 +16,7 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import java.nio.file.Files;
+import javafx.concurrent.Task;
 
 import java.io.File;
 import java.io.IOException;
@@ -32,6 +33,13 @@ public class App extends Application {
     private ComboBox<String> cbContextFilter;
     private ListView<Changeset> lvChangesets;
     private TextArea taChangesetSql;
+
+    // Loading overlay fields
+    private TabPane tabPane;
+    private VBox loadingOverlay;
+    private ProgressBar loadingBar;
+    private Label lblLoadingMsg;
+    private Task<ParseResult> activeParseTask;
 
     private TreeView<String> tvFiles;
     private TextArea taFullFileSql;
@@ -62,8 +70,10 @@ public class App extends Application {
         VBox headerPane = createHeaderPane();
         root.setTop(headerPane);
 
-        // Center Content (Tabs)
-        TabPane tabPane = new TabPane();
+        // Center Content (Tabs inside a StackPane for overlay)
+        StackPane centerStack = new StackPane();
+
+        this.tabPane = new TabPane();
         
         Tab tabChangesets = new Tab("Changeset Explorer");
         tabChangesets.setClosable(false);
@@ -78,7 +88,12 @@ public class App extends Application {
         tabDuplicates.setContent(createDuplicatesView());
 
         tabPane.getTabs().addAll(tabChangesets, tabSqlStatements, tabDuplicates);
-        root.setCenter(tabPane);
+
+        // Loading Overlay
+        this.loadingOverlay = createLoadingOverlay();
+        
+        centerStack.getChildren().addAll(tabPane, loadingOverlay);
+        root.setCenter(centerStack);
 
         // Scene setup
         Scene scene = new Scene(root, 1000, 700);
@@ -245,8 +260,26 @@ public class App extends Application {
         File selectedDir = directoryChooser.showDialog(primaryStage);
         if (selectedDir != null) {
             lblFolderPath.setText(selectedDir.getAbsolutePath());
-            try {
-                ParseResult result = LiquibaseParser.parseDirectory(selectedDir.toPath());
+            
+            showLoading(true);
+            lblStatus.setText("Initializing parsing...");
+            lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #6366f1;");
+            
+            activeParseTask = new Task<>() {
+                @Override
+                protected ParseResult call() throws Exception {
+                    return LiquibaseParser.parseDirectory(selectedDir.toPath(), (processed, total, currentFile) -> {
+                        updateProgress(processed, total);
+                        updateMessage(String.format("Parsing: %s (%d/%d)", currentFile, processed, total));
+                    });
+                }
+            };
+            
+            loadingBar.progressProperty().bind(activeParseTask.progressProperty());
+            lblLoadingMsg.textProperty().bind(activeParseTask.messageProperty());
+            
+            activeParseTask.setOnSucceeded(e -> {
+                ParseResult result = activeParseTask.getValue();
                 
                 this.allChangesets = result.getChangesets();
                 this.fileContents = result.getFileContents();
@@ -292,16 +325,32 @@ public class App extends Application {
                 applyFilter();
                 lblStatus.setText(String.format("Loaded %d changesets from %d files.", 
                         allChangesets.size(), fileContents.size()));
+                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #10b981;");
 
                 // Auto select first file in Tab 2 (which is [All Combined Statements])
                 if (tvFiles.getRoot() != null && !tvFiles.getRoot().getChildren().isEmpty()) {
                     tvFiles.getSelectionModel().select(tvFiles.getRoot().getChildren().get(0));
                 }
-
-            } catch (IOException ex) {
+                
+                showLoading(false);
+            });
+            
+            activeParseTask.setOnFailed(e -> {
+                Throwable ex = activeParseTask.getException();
                 lblStatus.setText("Error parsing folder: " + ex.getMessage());
                 lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #ef4444;");
-            }
+                showLoading(false);
+            });
+            
+            activeParseTask.setOnCancelled(e -> {
+                lblStatus.setText("Parsing cancelled by user.");
+                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #f59e0b;");
+                showLoading(false);
+            });
+            
+            Thread thread = new Thread(activeParseTask);
+            thread.setDaemon(true);
+            thread.start();
         }
     }
 
@@ -702,6 +751,58 @@ public class App extends Application {
                 alert.setContentText(ex.getMessage());
                 alert.showAndWait();
             }
+        }
+    }
+
+    private VBox createLoadingOverlay() {
+        VBox overlay = new VBox(20);
+        overlay.setAlignment(Pos.CENTER);
+        overlay.setStyle("-fx-background-color: rgba(18, 18, 30, 0.85);");
+
+        VBox card = new VBox(16);
+        card.getStyleClass().add("card");
+        card.setAlignment(Pos.CENTER);
+        card.setMinWidth(400);
+        card.setMaxWidth(500);
+        card.setPadding(new Insets(24));
+
+        Label lblTitle = new Label("Parsing Liquibase Files");
+        lblTitle.getStyleClass().add("section-label");
+        lblTitle.setStyle("-fx-font-size: 16px; -fx-text-fill: #c084fc;");
+
+        loadingBar = new ProgressBar(0);
+        loadingBar.setPrefWidth(350);
+
+        lblLoadingMsg = new Label("Initializing directory scan...");
+        lblLoadingMsg.getStyleClass().add("subtitle-label");
+        lblLoadingMsg.setStyle("-fx-text-fill: #a0aec0;");
+        lblLoadingMsg.setWrapText(true);
+        lblLoadingMsg.setAlignment(Pos.CENTER);
+
+        Button btnCancel = new Button("Cancel");
+        btnCancel.getStyleClass().add("button-secondary");
+        btnCancel.setOnAction(e -> handleCancelParsing());
+
+        card.getChildren().addAll(lblTitle, loadingBar, lblLoadingMsg, btnCancel);
+        overlay.getChildren().add(card);
+        overlay.setVisible(false);
+
+        return overlay;
+    }
+
+    private void handleCancelParsing() {
+        if (activeParseTask != null && activeParseTask.isRunning()) {
+            activeParseTask.cancel(true);
+        }
+    }
+
+    private void showLoading(boolean show) {
+        if (loadingOverlay != null) {
+            loadingOverlay.setVisible(show);
+            loadingOverlay.toFront();
+        }
+        if (tabPane != null) {
+            tabPane.setDisable(show);
         }
     }
 

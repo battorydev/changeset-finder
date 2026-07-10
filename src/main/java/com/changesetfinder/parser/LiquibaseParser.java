@@ -37,10 +37,21 @@ public class LiquibaseParser {
         }
     }
 
+    public interface ProgressListener {
+        void onProgress(int processed, int total, String currentFile);
+    }
+
     /**
      * Recursively parses all Liquibase SQL files in the given root folder.
      */
     public static ParseResult parseDirectory(Path rootDir) throws IOException {
+        return parseDirectory(rootDir, null);
+    }
+
+    /**
+     * Recursively parses all Liquibase SQL files in the given root folder with progress reporting.
+     */
+    public static ParseResult parseDirectory(Path rootDir, ProgressListener listener) throws IOException {
         List<Changeset> allChangesets = new ArrayList<>();
         Map<String, String> fileContents = new LinkedHashMap<>();
         Set<String> allContexts = new HashSet<>();
@@ -57,8 +68,19 @@ public class LiquibaseParser {
                     .collect(Collectors.toList());
         }
 
+        int total = sqlFiles.size();
+        int processed = 0;
+
         for (Path file : sqlFiles) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IOException("Parsing interrupted by user");
+            }
             String relativePath = rootDir.relativize(file).toString().replace('\\', '/');
+            
+            if (listener != null) {
+                listener.onProgress(processed, total, relativePath);
+            }
+
             String fullContent = Files.readString(file);
             
             // Verify if it is a Liquibase formatted SQL file
@@ -71,6 +93,11 @@ public class LiquibaseParser {
                 for (Changeset cs : fileChangesets) {
                     allContexts.addAll(cs.getContexts());
                 }
+            }
+            
+            processed++;
+            if (listener != null) {
+                listener.onProgress(processed, total, relativePath);
             }
         }
 
