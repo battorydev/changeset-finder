@@ -15,6 +15,10 @@ public class TestParser {
         System.out.println("Files parsed: " + result.getFileContents().keySet());
         System.out.println("Contexts found: " + result.getSortedContexts());
         System.out.println("Changesets found: " + result.getChangesets().size());
+        for (Changeset cs : result.getChangesets()) {
+            System.out.println(String.format("  - [%s] %s -> %s (Type: %s, Name: %s)", 
+                    cs.getFilePath(), cs.getId(), cs.getAuthor(), cs.getDbObjectType(), cs.getDbObjectName()));
+        }
         
         // Find duplicates
         Map<String, List<Changeset>> groupedById = result.getChangesets().stream()

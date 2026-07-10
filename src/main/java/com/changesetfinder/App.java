@@ -52,6 +52,10 @@ public class App extends Application {
     private SplitPane splitPaneDuplicates;
     private Map<String, List<Changeset>> duplicateChangesets = new java.util.HashMap<>();
 
+    // Database objects tab components
+    private TreeView<String> tvObjects;
+    private TextArea taObjectSql;
+
     // Parsed data
     private List<Changeset> allChangesets = new ArrayList<>();
     private Map<String, String> fileContents = java.util.Collections.emptyMap();
@@ -87,7 +91,11 @@ public class App extends Application {
         tabDuplicates.setClosable(false);
         tabDuplicates.setContent(createDuplicatesView());
 
-        tabPane.getTabs().addAll(tabChangesets, tabSqlStatements, tabDuplicates);
+        Tab tabObjects = new Tab("Database Objects");
+        tabObjects.setClosable(false);
+        tabObjects.setContent(createDatabaseObjectsView());
+
+        tabPane.getTabs().addAll(tabChangesets, tabSqlStatements, tabDuplicates, tabObjects);
 
         // Loading Overlay
         this.loadingOverlay = createLoadingOverlay();
@@ -322,10 +330,13 @@ public class App extends Application {
                 // Populate Tab 2 File Tree
                 populateFileTree(fileContents);
 
+                // Populate Tab 4 Database Objects Tree
+                populateObjectsTree(allChangesets);
+
                 applyFilter();
                 lblStatus.setText(String.format("Loaded %d changesets from %d files.", 
                         allChangesets.size(), fileContents.size()));
-                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #10b981;");
+                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #15803d;");
 
                 // Auto select first file in Tab 2 (which is [All Combined Statements])
                 if (tvFiles.getRoot() != null && !tvFiles.getRoot().getChildren().isEmpty()) {
@@ -338,13 +349,25 @@ public class App extends Application {
             activeParseTask.setOnFailed(e -> {
                 Throwable ex = activeParseTask.getException();
                 lblStatus.setText("Error parsing folder: " + ex.getMessage());
-                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #ef4444;");
+                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #b91c1c;");
+                if (tvObjects != null && tvObjects.getRoot() != null) {
+                    tvObjects.getRoot().getChildren().clear();
+                }
+                if (taObjectSql != null) {
+                    taObjectSql.clear();
+                }
                 showLoading(false);
             });
             
             activeParseTask.setOnCancelled(e -> {
                 lblStatus.setText("Parsing cancelled by user.");
-                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #f59e0b;");
+                lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #b45309;");
+                if (tvObjects != null && tvObjects.getRoot() != null) {
+                    tvObjects.getRoot().getChildren().clear();
+                }
+                if (taObjectSql != null) {
+                    taObjectSql.clear();
+                }
                 showLoading(false);
             });
             
@@ -384,6 +407,10 @@ public class App extends Application {
             lvChangesets.getSelectionModel().selectFirst();
         } else {
             taChangesetSql.clear();
+        }
+
+        if (tvObjects != null) {
+            populateObjectsTree(filtered);
         }
     }
 
@@ -803,6 +830,134 @@ public class App extends Application {
         }
         if (tabPane != null) {
             tabPane.setDisable(show);
+        }
+    }
+
+    private Pane createDatabaseObjectsView() {
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(16));
+
+        SplitPane splitPane = new SplitPane();
+
+        // Left side: Objects TreeView
+        tvObjects = new TreeView<>();
+        tvObjects.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal instanceof DbObjectTreeItem) {
+                DbObjectTreeItem item = (DbObjectTreeItem) newVal;
+                displayObjectSql(item.getObjectType(), item.getObjectName(), item.getChangesets());
+            } else {
+                taObjectSql.clear();
+            }
+        });
+
+        VBox leftContainer = new VBox(8);
+        Label lblLeftTitle = new Label("Grouped Objects");
+        lblLeftTitle.setStyle("-fx-text-fill: #64748b; -fx-font-weight: bold;");
+        leftContainer.getChildren().addAll(lblLeftTitle, tvObjects);
+        VBox.setVgrow(tvObjects, Priority.ALWAYS);
+
+        // Right side: SQL Content Area
+        taObjectSql = new TextArea();
+        taObjectSql.setEditable(false);
+        taObjectSql.setPromptText("Select a database object to display its SQL statements");
+
+        VBox sqlContainer = new VBox(8);
+        Label lblSqlTitle = new Label("SQL Content");
+        lblSqlTitle.setStyle("-fx-text-fill: #64748b; -fx-font-weight: bold;");
+        sqlContainer.getChildren().addAll(lblSqlTitle, taObjectSql);
+        VBox.setVgrow(taObjectSql, Priority.ALWAYS);
+
+        splitPane.getItems().addAll(leftContainer, sqlContainer);
+        splitPane.setDividerPositions(0.3);
+
+        pane.setCenter(splitPane);
+        return pane;
+    }
+
+    private void displayObjectSql(String type, String name, List<Changeset> changesets) {
+        if (changesets == null || changesets.isEmpty()) {
+            taObjectSql.clear();
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("-- ==================================================\n");
+        sb.append(String.format("-- Object Type:  %s\n", type));
+        sb.append(String.format("-- Object Name:  %s\n", name));
+        sb.append(String.format("-- Changesets:   %d\n", changesets.size()));
+        sb.append("-- ==================================================\n\n");
+
+        for (int i = 0; i < changesets.size(); i++) {
+            Changeset cs = changesets.get(i);
+            sb.append(String.format("-- Changeset %d of %d: %s (by %s in %s)\n", 
+                    (i + 1), changesets.size(), cs.getId(), cs.getAuthor(), cs.getFilePath()));
+            if (!cs.getContexts().isEmpty()) {
+                sb.append(String.format("-- Contexts:     %s\n", String.join(", ", cs.getContexts())));
+            }
+            sb.append(cs.getSqlContent().trim()).append("\n\n");
+        }
+
+        taObjectSql.setText(sb.toString().trim());
+    }
+
+    private void populateObjectsTree(List<Changeset> changesets) {
+        TreeItem<String> rootItem = new TreeItem<>("Root");
+        
+        // Grouping: Map<ObjectType, Map<ObjectName, List<Changeset>>>
+        Map<String, Map<String, List<Changeset>>> grouped = new java.util.HashMap<>();
+        String[] categories = {"Table", "View", "Procedure", "Function", "Sequence", "Type", "Index", "Trigger", "Other"};
+        for (String cat : categories) {
+            grouped.put(cat, new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER));
+        }
+        
+        for (Changeset cs : changesets) {
+            Map<String, List<Changeset>> nameMap = grouped.get(cs.getDbObjectType());
+            nameMap.computeIfAbsent(cs.getDbObjectName(), k -> new ArrayList<>()).add(cs);
+        }
+        
+        for (String cat : categories) {
+            Map<String, List<Changeset>> nameMap = grouped.get(cat);
+            if (nameMap != null && !nameMap.isEmpty()) {
+                int totalObjects = nameMap.size();
+                TreeItem<String> catItem = new TreeItem<>(String.format("%s (%d)", cat, totalObjects));
+                
+                for (Map.Entry<String, List<Changeset>> entry : nameMap.entrySet()) {
+                    String objName = entry.getKey();
+                    List<Changeset> list = entry.getValue();
+                    
+                    DbObjectTreeItem objItem = new DbObjectTreeItem(cat, objName, list);
+                    catItem.getChildren().add(objItem);
+                }
+                rootItem.getChildren().add(catItem);
+            }
+        }
+        
+        tvObjects.setRoot(rootItem);
+        tvObjects.setShowRoot(false);
+    }
+
+    private static class DbObjectTreeItem extends TreeItem<String> {
+        private final String objectType;
+        private final String objectName;
+        private final List<Changeset> changesets;
+
+        public DbObjectTreeItem(String type, String name, List<Changeset> changesets) {
+            super(name);
+            this.objectType = type;
+            this.objectName = name;
+            this.changesets = changesets;
+        }
+
+        public String getObjectType() {
+            return objectType;
+        }
+
+        public String getObjectName() {
+            return objectName;
+        }
+
+        public List<Changeset> getChangesets() {
+            return changesets;
         }
     }
 
