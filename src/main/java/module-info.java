@@ -1,5 +1,5 @@
 module com.changesetfinder {
-    requires javafx.controls;
+    requires java.desktop;
 
     exports com.changesetfinder;
     exports com.changesetfinder.model;
