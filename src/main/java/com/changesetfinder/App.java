@@ -144,7 +144,7 @@ public class App extends JFrame {
         leftPanel.add(btnChooseFolder);
         leftPanel.add(lblFolderPath);
 
-        chkDisableSqlBody = new JCheckBox("Disable SQL Preview", false);
+        chkDisableSqlBody = new JCheckBox("Disable SQL Preview", true);
         chkDisableSqlBody.setOpaque(false);
         chkDisableSqlBody.addActionListener(e -> handleDisableSqlToggled());
         leftPanel.add(chkDisableSqlBody);
