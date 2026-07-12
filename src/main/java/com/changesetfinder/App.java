@@ -23,7 +23,8 @@ import java.util.stream.Collectors;
 public class App extends JFrame {
     private JLabel lblFolderPath;
     private JLabel lblStatus;
-    private JComboBox<String> cbContextFilter;
+    private JPanel pnlExplorerFilters;
+    private List<JCheckBox> explorerCheckBoxes = new ArrayList<>();
     private JList<Changeset> lvChangesets;
     private JTextArea taChangesetSql;
 
@@ -47,7 +48,8 @@ public class App extends JFrame {
     // Database objects tab components
     private JTree tvObjects;
     private JTextArea taObjectSql;
-    private JComboBox<String> cbObjectsContextFilter;
+    private JPanel pnlObjectsFilters;
+    private List<JCheckBox> objectsCheckBoxes = new ArrayList<>();
 
     // Parsed data
     private List<Changeset> allChangesets = new ArrayList<>();
@@ -160,24 +162,27 @@ public class App extends JFrame {
         explorer.setBackground(Color.WHITE);
 
         // Top Filter Bar
-        JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        JPanel filterBar = new JPanel(new BorderLayout());
         filterBar.setOpaque(false);
         filterBar.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
+
+        pnlExplorerFilters = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        pnlExplorerFilters.setOpaque(false);
 
         JLabel lblFilter = new JLabel("Context Filter:");
         lblFilter.setFont(lblFilter.getFont().deriveFont(Font.BOLD));
         lblFilter.setForeground(new Color(100, 116, 139));
+        pnlExplorerFilters.add(lblFilter);
 
-        cbContextFilter = new JComboBox<>(new String[]{"All", "<No Context>"});
-        cbContextFilter.setPreferredSize(new Dimension(200, 26));
-        cbContextFilter.addActionListener(e -> applyFilter());
+        JCheckBox chkAll = new JCheckBox("All", true);
+        pnlExplorerFilters.add(chkAll);
+        explorerCheckBoxes.add(chkAll);
 
         JButton btnExport = new JButton("Export");
         btnExport.addActionListener(e -> handleExport());
 
-        filterBar.add(lblFilter);
-        filterBar.add(cbContextFilter);
-        filterBar.add(btnExport);
+        filterBar.add(pnlExplorerFilters, BorderLayout.WEST);
+        filterBar.add(btnExport, BorderLayout.EAST);
         explorer.add(filterBar, BorderLayout.NORTH);
 
         // Center Split Layout
@@ -402,21 +407,20 @@ public class App extends JFrame {
         objectsView.setBackground(Color.WHITE);
 
         // Top Filter Bar
-        JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        filterBar.setOpaque(false);
-        filterBar.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
+        pnlObjectsFilters = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        pnlObjectsFilters.setOpaque(false);
+        pnlObjectsFilters.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
 
         JLabel lblFilter = new JLabel("Context Filter:");
         lblFilter.setFont(lblFilter.getFont().deriveFont(Font.BOLD));
         lblFilter.setForeground(new Color(100, 116, 139));
+        pnlObjectsFilters.add(lblFilter);
 
-        cbObjectsContextFilter = new JComboBox<>(new String[]{"All", "<No Context>"});
-        cbObjectsContextFilter.setPreferredSize(new Dimension(200, 26));
-        cbObjectsContextFilter.addActionListener(e -> applyObjectsFilter());
+        JCheckBox chkAll = new JCheckBox("All", true);
+        pnlObjectsFilters.add(chkAll);
+        objectsCheckBoxes.add(chkAll);
 
-        filterBar.add(lblFilter);
-        filterBar.add(cbObjectsContextFilter);
-        objectsView.add(filterBar, BorderLayout.NORTH);
+        objectsView.add(pnlObjectsFilters, BorderLayout.NORTH);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         splitPane.setDividerLocation(320);
@@ -531,25 +535,9 @@ public class App extends JFrame {
                             }
                         }
 
-                        // Populate explorer dropdown
-                        DefaultComboBoxModel<String> modelExplorer = new DefaultComboBoxModel<>();
-                        modelExplorer.addElement("All");
-                        modelExplorer.addElement("<No Context>");
-                        for (String ctx : uniqueContexts) {
-                            modelExplorer.addElement(ctx);
-                        }
-                        cbContextFilter.setModel(modelExplorer);
-                        cbContextFilter.setSelectedItem("All");
-
-                        // Populate objects dropdown
-                        DefaultComboBoxModel<String> modelObjects = new DefaultComboBoxModel<>();
-                        modelObjects.addElement("All");
-                        modelObjects.addElement("<No Context>");
-                        for (String ctx : uniqueContexts) {
-                            modelObjects.addElement(ctx);
-                        }
-                        cbObjectsContextFilter.setModel(modelObjects);
-                        cbObjectsContextFilter.setSelectedItem("All");
+                        // Populate explorer and objects filter checkboxes
+                        populateFilterCheckboxes(pnlExplorerFilters, explorerCheckBoxes, false);
+                        populateFilterCheckboxes(pnlObjectsFilters, objectsCheckBoxes, true);
 
                         // Populate Duplicate ID JList
                         DefaultListModel<String> dupesListModel = new DefaultListModel<>();
@@ -612,8 +600,8 @@ public class App extends JFrame {
         uniqueContexts.clear();
         duplicateChangesets.clear();
 
-        cbContextFilter.setModel(new DefaultComboBoxModel<>(new String[]{"All", "<No Context>"}));
-        cbObjectsContextFilter.setModel(new DefaultComboBoxModel<>(new String[]{"All", "<No Context>"}));
+        populateFilterCheckboxes(pnlExplorerFilters, explorerCheckBoxes, false);
+        populateFilterCheckboxes(pnlObjectsFilters, objectsCheckBoxes, true);
         
         lvChangesets.setModel(new DefaultListModel<>());
         taChangesetSql.setText("");
@@ -642,24 +630,47 @@ public class App extends JFrame {
     }
 
     private void applyFilter() {
-        String selectedContext = (String) cbContextFilter.getSelectedItem();
-        if (selectedContext == null) return;
+        List<String> checked = new ArrayList<>();
+        for (JCheckBox chk : explorerCheckBoxes) {
+            if (chk.isSelected()) {
+                checked.add(chk.getText());
+            }
+        }
 
         DefaultListModel<Changeset> filteredModel = new DefaultListModel<>();
         for (Changeset cs : allChangesets) {
-            // Exclude duplicate changesets from Changeset Explorer view
             if (duplicateChangesets.containsKey(cs.getId())) {
                 continue;
             }
 
-            if (selectedContext.equals("All")) {
+            if (checked.contains("All")) {
                 filteredModel.addElement(cs);
-            } else if (selectedContext.equals("<No Context>")) {
-                if (cs.getContexts().isEmpty()) {
-                    filteredModel.addElement(cs);
-                }
             } else {
-                if (cs.getContexts().contains(selectedContext)) {
+                boolean matches = false;
+                for (String sel : checked) {
+                    if (sel.equals("<No Context>")) {
+                        if (cs.getContexts().isEmpty()) {
+                            matches = true;
+                            break;
+                        }
+                    } else if (sel.equals("UAT (Only)")) {
+                        if (cs.getContexts().size() == 1 && cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase("UAT"))) {
+                            matches = true;
+                            break;
+                        }
+                    } else if (sel.equals("PRD (Only)")) {
+                        if (cs.getContexts().size() == 1 && cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase("PRD"))) {
+                            matches = true;
+                            break;
+                        }
+                    } else {
+                        if (cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase(sel))) {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+                if (matches) {
                     filteredModel.addElement(cs);
                 }
             }
@@ -675,24 +686,47 @@ public class App extends JFrame {
     }
 
     private void applyObjectsFilter() {
-        String selectedContext = (String) cbObjectsContextFilter.getSelectedItem();
-        if (selectedContext == null) return;
+        List<String> checked = new ArrayList<>();
+        for (JCheckBox chk : objectsCheckBoxes) {
+            if (chk.isSelected()) {
+                checked.add(chk.getText());
+            }
+        }
 
         List<Changeset> filtered = new ArrayList<>();
         for (Changeset cs : allChangesets) {
-            // Exclude duplicate changesets from Database Objects Tree
             if (duplicateChangesets.containsKey(cs.getId())) {
                 continue;
             }
 
-            if (selectedContext.equals("All")) {
+            if (checked.contains("All")) {
                 filtered.add(cs);
-            } else if (selectedContext.equals("<No Context>")) {
-                if (cs.getContexts().isEmpty()) {
-                    filtered.add(cs);
-                }
             } else {
-                if (cs.getContexts().contains(selectedContext)) {
+                boolean matches = false;
+                for (String sel : checked) {
+                    if (sel.equals("<No Context>")) {
+                        if (cs.getContexts().isEmpty()) {
+                            matches = true;
+                            break;
+                        }
+                    } else if (sel.equals("UAT (Only)")) {
+                        if (cs.getContexts().size() == 1 && cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase("UAT"))) {
+                            matches = true;
+                            break;
+                        }
+                    } else if (sel.equals("PRD (Only)")) {
+                        if (cs.getContexts().size() == 1 && cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase("PRD"))) {
+                            matches = true;
+                            break;
+                        }
+                    } else {
+                        if (cs.getContexts().stream().anyMatch(c -> c.equalsIgnoreCase(sel))) {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+                if (matches) {
                     filtered.add(cs);
                 }
             }
@@ -901,7 +935,11 @@ public class App extends JFrame {
                 StringBuilder sb = new StringBuilder();
                 sb.append("================================================================================\n");
                 sb.append("EXPORTED LIQUIBASE CHANGESETS\n");
-                sb.append(String.format("Filter:            Context = %s\n", cbContextFilter.getSelectedItem()));
+                List<String> checked = new ArrayList<>();
+                for (JCheckBox chk : explorerCheckBoxes) {
+                    if (chk.isSelected()) checked.add(chk.getText());
+                }
+                sb.append(String.format("Filter:            Contexts = %s\n", String.join(", ", checked)));
                 int listSize = lvChangesets.getModel().getSize();
                 sb.append(String.format("Total Changesets:  %d\n", listSize));
                 sb.append(String.format("Exported On:       %s\n", java.time.LocalDateTime.now().toString()));
@@ -1132,6 +1170,81 @@ public class App extends JFrame {
 
             return this;
         }
+    }
+
+    private void populateFilterCheckboxes(JPanel panel, List<JCheckBox> list, boolean isObjectsTab) {
+        panel.removeAll();
+        list.clear();
+
+        JLabel lblFilter = new JLabel("Context Filter:");
+        lblFilter.setFont(lblFilter.getFont().deriveFont(Font.BOLD));
+        lblFilter.setForeground(new Color(100, 116, 139));
+        panel.add(lblFilter);
+
+        JCheckBox chkAll = new JCheckBox("All", true);
+        list.add(chkAll);
+        panel.add(chkAll);
+
+        JCheckBox chkNoCtx = new JCheckBox("<No Context>", false);
+        list.add(chkNoCtx);
+        panel.add(chkNoCtx);
+
+        boolean hasUat = false;
+        boolean hasPrd = false;
+        for (String ctx : uniqueContexts) {
+            JCheckBox chk = new JCheckBox(ctx, false);
+            list.add(chk);
+            panel.add(chk);
+            if (ctx.equalsIgnoreCase("UAT")) hasUat = true;
+            if (ctx.equalsIgnoreCase("PRD")) hasPrd = true;
+        }
+
+        if (hasUat) {
+            JCheckBox chk = new JCheckBox("UAT (Only)", false);
+            list.add(chk);
+            panel.add(chk);
+        }
+        if (hasPrd) {
+            JCheckBox chk = new JCheckBox("PRD (Only)", false);
+            list.add(chk);
+            panel.add(chk);
+        }
+
+        for (JCheckBox chk : list) {
+            chk.addActionListener(e -> {
+                if (chk == chkAll) {
+                    if (chkAll.isSelected()) {
+                        for (JCheckBox o : list) {
+                            if (o != chkAll) o.setSelected(false);
+                        }
+                    }
+                } else {
+                    if (chk.isSelected()) {
+                        chkAll.setSelected(false);
+                    }
+                }
+
+                boolean anySelected = false;
+                for (JCheckBox o : list) {
+                    if (o.isSelected()) {
+                        anySelected = true;
+                        break;
+                    }
+                }
+                if (!anySelected) {
+                    chkAll.setSelected(true);
+                }
+
+                if (isObjectsTab) {
+                    applyObjectsFilter();
+                } else {
+                    applyFilter();
+                }
+            });
+        }
+
+        panel.revalidate();
+        panel.repaint();
     }
 
     private static class DbObjectNodeUserObject {

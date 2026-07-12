@@ -86,7 +86,7 @@ public class LiquibaseParser {
             // Verify if it is a Liquibase formatted SQL file
             if (isLiquibaseFile(fullContent)) {
                 fileContents.put(relativePath, fullContent);
-                List<Changeset> fileChangesets = parseSqlFile(fullContent, relativePath);
+                List<Changeset> fileChangesets = parseSqlFile(file, relativePath);
                 allChangesets.addAll(fileChangesets);
                 
                 // Collect all unique contexts
@@ -122,30 +122,44 @@ public class LiquibaseParser {
         return false;
     }
 
-    private static List<Changeset> parseSqlFile(String content, String relativePath) {
+    private static List<Changeset> parseSqlFile(Path file, String relativePath) {
         List<Changeset> changesets = new ArrayList<>();
+        String absolutePathStr = file.toAbsolutePath().toString().replace('\\', '/');
         
-        try (BufferedReader reader = new BufferedReader(new java.io.StringReader(content))) {
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
             String line;
+            int lineNum = 0;
             
             // Temporary parsing state
             String activeId = null;
             String activeAuthor = null;
             List<String> activeContexts = new ArrayList<>();
             StringBuilder activeSql = new StringBuilder();
+            int changesetStartLine = -1;
             
             while ((line = reader.readLine()) != null) {
+                lineNum++;
                 String trimmed = line.trim();
                 
                 if (trimmed.toLowerCase().startsWith("--changeset ")) {
                     // If we have an active changeset, save it before starting the next one
                     if (activeId != null) {
-                        changesets.add(new Changeset(activeId, activeAuthor, relativePath, activeContexts, activeSql.toString()));
+                        changesets.add(new Changeset(
+                            activeId, 
+                            activeAuthor, 
+                            relativePath, 
+                            absolutePathStr, 
+                            activeContexts, 
+                            changesetStartLine, 
+                            lineNum - 1, 
+                            activeSql.toString()
+                        ));
                         // Reset
                         activeId = null;
                         activeAuthor = null;
                         activeContexts = new ArrayList<>();
                         activeSql = new StringBuilder();
+                        changesetStartLine = -1;
                     }
                     
                     // Parse the new changeset header
@@ -184,6 +198,7 @@ public class LiquibaseParser {
                             }
                         }
                     }
+                    changesetStartLine = lineNum + 1;
                 } else {
                     // If we are currently parsing a changeset, accumulate the SQL statement lines
                     if (activeId != null) {
@@ -194,7 +209,16 @@ public class LiquibaseParser {
             
             // Add the last changeset in the file if exists
             if (activeId != null) {
-                changesets.add(new Changeset(activeId, activeAuthor, relativePath, activeContexts, activeSql.toString()));
+                changesets.add(new Changeset(
+                    activeId, 
+                    activeAuthor, 
+                    relativePath, 
+                    absolutePathStr, 
+                    activeContexts, 
+                    changesetStartLine, 
+                    lineNum, 
+                    activeSql.toString()
+                ));
             }
             
         } catch (IOException e) {

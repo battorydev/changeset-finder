@@ -8,19 +8,31 @@ public class Changeset {
     private final String id;
     private final String author;
     private final String filePath;
+    private final String absoluteFilePath;
     private final List<String> contexts;
-    private final String sqlContent;
+    private final int startLine;
+    private final int endLine;
     private final String dbObjectType;
     private final String dbObjectName;
+    
+    private String loadedSqlContent = null;
 
-    public Changeset(String id, String author, String filePath, List<String> contexts, String sqlContent) {
+    public Changeset(String id, String author, String filePath, String absoluteFilePath, List<String> contexts, int startLine, int endLine, String sqlForClassification) {
         this.id = id != null ? id.trim() : "";
         this.author = author != null ? author.trim() : "";
         this.filePath = filePath != null ? filePath.trim() : "";
+        this.absoluteFilePath = absoluteFilePath != null ? absoluteFilePath.trim() : "";
         this.contexts = contexts != null ? new ArrayList<>(contexts) : new ArrayList<>();
-        this.sqlContent = sqlContent != null ? sqlContent : "";
-        this.dbObjectType = classifySql(this.sqlContent);
-        this.dbObjectName = extractObjectName(this.sqlContent, this.dbObjectType);
+        this.startLine = startLine;
+        this.endLine = endLine;
+        this.dbObjectType = classifySql(sqlForClassification);
+        this.dbObjectName = extractObjectName(sqlForClassification, this.dbObjectType);
+    }
+
+    @Deprecated
+    public Changeset(String id, String author, String filePath, List<String> contexts, String sqlContent) {
+        this(id, author, filePath, "", contexts, 0, 0, sqlContent);
+        this.loadedSqlContent = sqlContent;
     }
 
     public String getId() {
@@ -40,7 +52,30 @@ public class Changeset {
     }
 
     public String getSqlContent() {
-        return sqlContent;
+        if (loadedSqlContent != null) {
+            return loadedSqlContent;
+        }
+        if (absoluteFilePath == null || absoluteFilePath.isEmpty()) {
+            return "";
+        }
+        try {
+            java.nio.file.Path path = java.nio.file.Path.of(absoluteFilePath);
+            if (java.nio.file.Files.exists(path)) {
+                List<String> lines = java.nio.file.Files.readAllLines(path);
+                int startIdx = Math.max(0, startLine - 1);
+                int endIdx = Math.min(lines.size(), endLine);
+                StringBuilder sb = new StringBuilder();
+                for (int i = startIdx; i < endIdx; i++) {
+                    sb.append(lines.get(i)).append("\n");
+                }
+                loadedSqlContent = sb.toString();
+            } else {
+                loadedSqlContent = "-- File not found: " + absoluteFilePath;
+            }
+        } catch (Exception e) {
+            loadedSqlContent = "-- Error lazy-loading SQL content: " + e.getMessage();
+        }
+        return loadedSqlContent;
     }
 
     public String getDbObjectType() {
