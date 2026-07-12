@@ -85,7 +85,7 @@ public class LiquibaseParser {
             
             // Verify if it is a Liquibase formatted SQL file
             if (isLiquibaseFile(fullContent)) {
-                fileContents.put(relativePath, fullContent);
+                fileContents.put(relativePath, file.toAbsolutePath().toString().replace('\\', '/'));
                 List<Changeset> fileChangesets = parseSqlFile(file, relativePath);
                 allChangesets.addAll(fileChangesets);
                 
@@ -135,6 +135,7 @@ public class LiquibaseParser {
             String activeAuthor = null;
             List<String> activeContexts = new ArrayList<>();
             StringBuilder activeSql = new StringBuilder();
+            int activeSqlLineCount = 0;
             int changesetStartLine = -1;
             
             while ((line = reader.readLine()) != null) {
@@ -159,6 +160,7 @@ public class LiquibaseParser {
                         activeAuthor = null;
                         activeContexts = new ArrayList<>();
                         activeSql = new StringBuilder();
+                        activeSqlLineCount = 0;
                         changesetStartLine = -1;
                     }
                     
@@ -200,9 +202,12 @@ public class LiquibaseParser {
                     }
                     changesetStartLine = lineNum + 1;
                 } else {
-                    // If we are currently parsing a changeset, accumulate the SQL statement lines
+                    // If we are currently parsing a changeset, accumulate the first 50 SQL statement lines for classification
                     if (activeId != null) {
-                        activeSql.append(line).append("\n");
+                        if (activeSqlLineCount < 50) {
+                            activeSql.append(line).append("\n");
+                            activeSqlLineCount++;
+                        }
                     }
                 }
             }

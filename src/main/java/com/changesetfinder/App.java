@@ -769,13 +769,23 @@ public class App extends JFrame {
             sb.append("-- ==================================================\n\n");
             for (Map.Entry<String, String> entry : fileContents.entrySet()) {
                 sb.append(String.format("-- File: %s\n", entry.getKey()));
-                sb.append(entry.getValue().trim()).append("\n\n");
+                try {
+                    String fileContent = java.nio.file.Files.readString(java.nio.file.Path.of(entry.getValue()));
+                    sb.append(fileContent.trim()).append("\n\n");
+                } catch (Exception ex) {
+                    sb.append("-- Error loading file: ").append(ex.getMessage()).append("\n\n");
+                }
             }
             taFullFileSql.setText(sb.toString().trim());
             taFullFileSql.setCaretPosition(0);
         } else {
             if (fileContents.containsKey(path)) {
-                taFullFileSql.setText(fileContents.get(path).trim());
+                try {
+                    String fileContent = java.nio.file.Files.readString(java.nio.file.Path.of(fileContents.get(path)));
+                    taFullFileSql.setText(fileContent.trim());
+                } catch (Exception ex) {
+                    taFullFileSql.setText("-- Error loading file: " + ex.getMessage());
+                }
                 taFullFileSql.setCaretPosition(0);
             } else {
                 taFullFileSql.setText("");
