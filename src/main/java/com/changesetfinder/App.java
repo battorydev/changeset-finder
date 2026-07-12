@@ -224,6 +224,23 @@ public class App extends JFrame {
         lblSqlTitle.setForeground(new Color(100, 116, 139));
 
         taChangesetSql = new JTextArea();
+        setupTextAreaClickListener(taChangesetSql, () -> {
+            Changeset cs = lvChangesets.getSelectedValue();
+            if (cs != null) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("-- ==================================================\n");
+                sb.append(String.format("-- Changeset ID: %s\n", cs.getId()));
+                sb.append(String.format("-- Author:       %s\n", cs.getAuthor()));
+                sb.append(String.format("-- Contexts:     %s\n", 
+                        cs.getContexts().isEmpty() ? "None" : String.join(", ", cs.getContexts())));
+                sb.append(String.format("-- File Path:    %s\n", cs.getFilePath()));
+                sb.append("-- ==================================================\n\n");
+                sb.append(cs.getSqlContent().trim());
+                taChangesetSql.setText(sb.toString());
+                taChangesetSql.setToolTipText(null);
+                taChangesetSql.setCaretPosition(0);
+            }
+        });
         JScrollPane sqlScroll = createMonospaceTextAreaWithScroll(taChangesetSql);
 
         sqlPanel.add(lblSqlTitle, BorderLayout.NORTH);
@@ -389,6 +406,23 @@ public class App extends JFrame {
         lblSqlTitle.setForeground(new Color(100, 116, 139));
 
         taDuplicateSql = new JTextArea();
+        setupTextAreaClickListener(taDuplicateSql, () -> {
+            Changeset cs = lvDuplicateOccurrences.getSelectedValue();
+            if (cs != null) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("-- ==================================================\n");
+                sb.append("-- DUPLICATE OCCURRENCE DETAILS\n");
+                sb.append(String.format("-- Changeset ID: %s\n", cs.getId()));
+                sb.append(String.format("-- Author:       %s\n", cs.getAuthor()));
+                sb.append(String.format("-- File Path:    %s\n", cs.getFilePath()));
+                sb.append(String.format("-- Contexts:     %s\n", cs.getContexts().isEmpty() ? "None" : String.join(", ", cs.getContexts())));
+                sb.append("-- ==================================================\n\n");
+                sb.append(cs.getSqlContent().trim());
+                taDuplicateSql.setText(sb.toString());
+                taDuplicateSql.setToolTipText(null);
+                taDuplicateSql.setCaretPosition(0);
+            }
+        });
         JScrollPane sqlScroll = createMonospaceTextAreaWithScroll(taDuplicateSql);
         sqlPanel.add(lblSqlTitle, BorderLayout.NORTH);
         sqlPanel.add(sqlScroll, BorderLayout.CENTER);
@@ -471,6 +505,36 @@ public class App extends JFrame {
         lblSqlTitle.setForeground(new Color(100, 116, 139));
 
         taObjectSql = new JTextArea();
+        setupTextAreaClickListener(taObjectSql, () -> {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) tvObjects.getLastSelectedPathComponent();
+            if (node != null) {
+                Object userObj = node.getUserObject();
+                if (userObj instanceof DbObjectNodeUserObject) {
+                    DbObjectNodeUserObject item = (DbObjectNodeUserObject) userObj;
+                    List<Changeset> changesets = item.getChangesets();
+                    
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("-- ==================================================\n");
+                    sb.append(String.format("-- Object Type:  %s\n", item.getObjectType()));
+                    sb.append(String.format("-- Object Name:  %s\n", item.getObjectName()));
+                    sb.append(String.format("-- Changesets:   %d\n", changesets.size()));
+                    sb.append("-- ==================================================\n\n");
+
+                    for (int i = 0; i < changesets.size(); i++) {
+                        Changeset cs = changesets.get(i);
+                        sb.append(String.format("-- Changeset %d of %d: %s (by %s in %s)\n", 
+                                (i + 1), changesets.size(), cs.getId(), cs.getAuthor(), cs.getFilePath()));
+                        if (!cs.getContexts().isEmpty()) {
+                            sb.append(String.format("-- Contexts:     %s\n", String.join(", ", cs.getContexts())));
+                        }
+                        sb.append(cs.getSqlContent().trim()).append("\n\n");
+                    }
+                    taObjectSql.setText(sb.toString().trim());
+                    taObjectSql.setToolTipText(null);
+                    taObjectSql.setCaretPosition(0);
+                }
+            }
+        });
         JScrollPane sqlScroll = createMonospaceTextAreaWithScroll(taObjectSql);
 
         sqlPanel.add(lblSqlTitle, BorderLayout.NORTH);
@@ -772,8 +836,10 @@ public class App extends JFrame {
         
         if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
             sb.append("[SQL Preview is disabled by user]");
+            taChangesetSql.setToolTipText("Click to load and display SQL content");
         } else {
             sb.append(changeset.getSqlContent().trim());
+            taChangesetSql.setToolTipText(null);
         }
 
         taChangesetSql.setText(sb.toString());
@@ -833,7 +899,9 @@ public class App extends JFrame {
 
         if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
             sb.append("[SQL Preview is disabled by user]");
+            taObjectSql.setToolTipText("Click to load and display SQL content");
         } else {
+            taObjectSql.setToolTipText(null);
             for (int i = 0; i < changesets.size(); i++) {
                 Changeset cs = changesets.get(i);
                 sb.append(String.format("-- Changeset %d of %d: %s (by %s in %s)\n", 
@@ -882,8 +950,10 @@ public class App extends JFrame {
         
         if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
             sb.append("[SQL Preview is disabled by user]");
+            taDuplicateSql.setToolTipText("Click to load and display SQL content");
         } else {
             sb.append(cs.getSqlContent().trim());
+            taDuplicateSql.setToolTipText(null);
         }
 
         taDuplicateSql.setText(sb.toString());
@@ -1289,6 +1359,17 @@ public class App extends JFrame {
 
         panel.revalidate();
         panel.repaint();
+    }
+
+    private void setupTextAreaClickListener(JTextArea textArea, Runnable loadAction) {
+        textArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (textArea.getText().contains("[SQL Preview is disabled by user]")) {
+                    loadAction.run();
+                }
+            }
+        });
     }
 
     private static class DbObjectNodeUserObject {
