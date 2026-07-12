@@ -27,6 +27,7 @@ public class App extends JFrame {
     private List<JCheckBox> explorerCheckBoxes = new ArrayList<>();
     private JList<Changeset> lvChangesets;
     private JTextArea taChangesetSql;
+    private JCheckBox chkDisableSqlBody;
 
     // Loading overlay fields
     private JTabbedPane tabPane;
@@ -142,6 +143,11 @@ public class App extends JFrame {
 
         leftPanel.add(btnChooseFolder);
         leftPanel.add(lblFolderPath);
+
+        chkDisableSqlBody = new JCheckBox("Disable SQL Preview", false);
+        chkDisableSqlBody.setOpaque(false);
+        chkDisableSqlBody.addActionListener(e -> handleDisableSqlToggled());
+        leftPanel.add(chkDisableSqlBody);
 
         lblStatus = new JLabel("Ready.");
         lblStatus.setFont(lblStatus.getFont().deriveFont(Font.BOLD));
@@ -624,6 +630,20 @@ public class App extends JFrame {
         }
     }
 
+    private void handleDisableSqlToggled() {
+        displayChangesetSql(lvChangesets.getSelectedValue());
+        displayDuplicateSql(lvDuplicateOccurrences.getSelectedValue());
+        
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) tvObjects.getLastSelectedPathComponent();
+        if (node != null) {
+            Object userObj = node.getUserObject();
+            if (userObj instanceof DbObjectNodeUserObject) {
+                DbObjectNodeUserObject item = (DbObjectNodeUserObject) userObj;
+                displayObjectSql(item.getObjectType(), item.getObjectName(), item.getChangesets());
+            }
+        }
+    }
+
     private void showLoading(boolean show) {
         loadingOverlay.setVisible(show);
         tabPane.setEnabled(!show);
@@ -749,7 +769,12 @@ public class App extends JFrame {
                 changeset.getContexts().isEmpty() ? "None" : String.join(", ", changeset.getContexts())));
         sb.append(String.format("-- File Path:    %s\n", changeset.getFilePath()));
         sb.append("-- ==================================================\n\n");
-        sb.append(changeset.getSqlContent().trim());
+        
+        if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
+            sb.append("[SQL Preview is disabled by user]");
+        } else {
+            sb.append(changeset.getSqlContent().trim());
+        }
 
         taChangesetSql.setText(sb.toString());
         taChangesetSql.setCaretPosition(0);
@@ -806,14 +831,18 @@ public class App extends JFrame {
         sb.append(String.format("-- Changesets:   %d\n", changesets.size()));
         sb.append("-- ==================================================\n\n");
 
-        for (int i = 0; i < changesets.size(); i++) {
-            Changeset cs = changesets.get(i);
-            sb.append(String.format("-- Changeset %d of %d: %s (by %s in %s)\n", 
-                    (i + 1), changesets.size(), cs.getId(), cs.getAuthor(), cs.getFilePath()));
-            if (!cs.getContexts().isEmpty()) {
-                sb.append(String.format("-- Contexts:     %s\n", String.join(", ", cs.getContexts())));
+        if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
+            sb.append("[SQL Preview is disabled by user]");
+        } else {
+            for (int i = 0; i < changesets.size(); i++) {
+                Changeset cs = changesets.get(i);
+                sb.append(String.format("-- Changeset %d of %d: %s (by %s in %s)\n", 
+                        (i + 1), changesets.size(), cs.getId(), cs.getAuthor(), cs.getFilePath()));
+                if (!cs.getContexts().isEmpty()) {
+                    sb.append(String.format("-- Contexts:     %s\n", String.join(", ", cs.getContexts())));
+                }
+                sb.append(cs.getSqlContent().trim()).append("\n\n");
             }
-            sb.append(cs.getSqlContent().trim()).append("\n\n");
         }
 
         taObjectSql.setText(sb.toString().trim());
@@ -850,7 +879,12 @@ public class App extends JFrame {
         sb.append(String.format("-- File Path:    %s\n", cs.getFilePath()));
         sb.append(String.format("-- Contexts:     %s\n", cs.getContexts().isEmpty() ? "None" : String.join(", ", cs.getContexts())));
         sb.append("-- ==================================================\n\n");
-        sb.append(cs.getSqlContent().trim());
+        
+        if (chkDisableSqlBody != null && chkDisableSqlBody.isSelected()) {
+            sb.append("[SQL Preview is disabled by user]");
+        } else {
+            sb.append(cs.getSqlContent().trim());
+        }
 
         taDuplicateSql.setText(sb.toString());
         taDuplicateSql.setCaretPosition(0);
